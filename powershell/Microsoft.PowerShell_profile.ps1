@@ -2,6 +2,12 @@
 # It deliberately uses built-in commands until optional replacements exist.
 
 $env:Path = "$HOME\.local\bin;$env:Path"
+$pythonEnvScripts = Join-Path $HOME '.venv\python-3.13\Scripts'
+if (Test-Path $pythonEnvScripts) {
+    # Prefer the shared, seeded Python 3.13 environment when setup created it.
+    # Windows' app-managed Python remains unchanged and available by full path.
+    $env:Path = "$pythonEnvScripts;$env:Path"
+}
 
 function prompt {
     $success = $?

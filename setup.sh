@@ -2,7 +2,7 @@
 # Set up the shared command-line configuration on macOS or Linux.
 #
 # Usage:
-#   ./setup.sh [--skip-packages] [--github] [--ssh-key] [--dry-run]
+#   ./setup.sh [--skip-packages] [--system-upgrade] [--github] [--ssh-key] [--dry-run]
 #
 # The script only creates symlinks and updates this user's Git configuration.
 # Existing dotfiles are moved to a dated backup before a link is created.
@@ -10,10 +10,12 @@
 set -euo pipefail
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$HOME/.local/bin:$PATH"
 SKIP_PACKAGES=false
 LINK_GITHUB=false
 CREATE_SSH_KEY=false
 DRY_RUN=false
+SYSTEM_UPGRADE=false
 DONE=()
 SKIPPED=()
 PENDING=()
@@ -70,6 +72,7 @@ while (($#)); do
     --github) LINK_GITHUB=true ;;
     --ssh-key) CREATE_SSH_KEY=true; LINK_GITHUB=true ;;
     --dry-run) DRY_RUN=true ;;
+    --system-upgrade) SYSTEM_UPGRADE=true ;;
     --help|-h) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -100,6 +103,36 @@ install_packages() {
 
   # Packages are independent: an unavailable optional package must not prevent
   # installation of the usable base configuration or the remaining tools.
+  if [[ "$manager" == apt ]]; then
+    # Refresh package metadata before installing. A full system upgrade is
+    # deliberately opt-in because it can update unrelated libraries or the
+    # kernel and may require a restart on an otherwise usable computer.
+    if run sudo apt-get update; then
+      if "$DRY_RUN"; then
+        add_status pending 'Would refresh apt package metadata'
+      else
+        add_status done 'Refreshed apt package metadata'
+      fi
+    else
+      printf 'Could not refresh apt package metadata; continuing with the existing cache.\n' >&2
+      add_status skipped 'apt package metadata refresh failed'
+    fi
+    if "$SYSTEM_UPGRADE"; then
+      if run sudo apt-get upgrade -y; then
+        if "$DRY_RUN"; then
+          add_status pending 'Would upgrade installed apt packages'
+        else
+          add_status done 'Upgraded installed apt packages'
+        fi
+      else
+        printf 'System upgrade failed; continuing with tool installation.\n' >&2
+        add_status skipped 'apt system upgrade failed'
+      fi
+    fi
+  elif "$SYSTEM_UPGRADE"; then
+    printf '--system-upgrade only applies to apt-based Linux systems.\n' >&2
+    add_status skipped 'System upgrade: unsupported package manager'
+  fi
   printf 'Installing optional productivity tools with %s...\n' "$manager"
   local package
   for package in "${packages[@]}"; do
@@ -120,6 +153,76 @@ install_packages() {
       add_status skipped "Package unavailable or failed: $package"
     fi
   done
+}
+
+setup_python() {
+  local python_env_dir="$HOME/.venv/python-3.13"
+
+  # uv supplies the same CPython 3.13 release on every supported platform,
+  # avoiding distribution-specific package availability and system-Python
+  # restrictions. The fallback is only used when the package manager lacked uv.
+  if ! command -v uv >/dev/null 2>&1; then
+    if command -v curl >/dev/null 2>&1; then
+      if run bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'; then
+        hash -r
+        if "$DRY_RUN"; then
+          add_status pending 'Would install uv from Astral'
+        else
+          add_status done 'Installed uv from Astral'
+        fi
+      else
+        add_status skipped 'Could not install uv'
+      fi
+    else
+      printf 'uv and curl are unavailable; Python 3.13 setup was skipped.\n' >&2
+      add_status pending 'Install uv, then rerun setup to configure Python 3.13'
+      return
+    fi
+  fi
+
+  if [[ "$DRY_RUN" != true ]] && ! command -v uv >/dev/null 2>&1; then
+    add_status pending 'Install uv, then rerun setup to configure Python 3.13'
+    return
+  fi
+  if run uv python install --default 3.13; then
+    if "$DRY_RUN"; then
+      add_status pending 'Would install default Python 3.13 with uv'
+    else
+      add_status done 'Installed default Python 3.13 with uv'
+    fi
+  else
+    add_status skipped 'Could not install Python 3.13'
+    return
+  fi
+  if run uv venv "$python_env_dir" --python 3.13 --seed; then
+    if "$DRY_RUN"; then
+      add_status pending "Would create shared Python environment: $python_env_dir"
+    else
+      add_status done "Created or updated shared Python environment: $python_env_dir"
+    fi
+  else
+    add_status skipped 'Could not create the shared Python 3.13 environment'
+    return
+  fi
+  if run "$python_env_dir/bin/python" -m pip install --upgrade pip pipx; then
+    if "$DRY_RUN"; then
+      add_status pending 'Would install pip and pipx in the shared Python environment'
+    else
+      add_status done 'Installed pip and pipx in the shared Python environment'
+    fi
+  else
+    add_status skipped 'Could not install pip and pipx'
+    return
+  fi
+  if run "$python_env_dir/bin/pipx" ensurepath; then
+    if "$DRY_RUN"; then
+      add_status pending 'Would configure the pipx application path'
+    else
+      add_status done 'Configured the pipx application path'
+    fi
+  else
+    add_status skipped 'Could not configure the pipx application path'
+  fi
 }
 
 link_file() {
@@ -209,6 +312,7 @@ if ! "$SKIP_PACKAGES"; then
 else
   add_status skipped 'Package installation requested to be skipped'
 fi
+setup_python
 
 link_file "$REPO_DIR/.zsh" "$HOME/.zsh"
 link_file "$REPO_DIR/.zshrc" "$HOME/.zshrc"

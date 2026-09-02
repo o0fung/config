@@ -30,6 +30,20 @@ enter your Git display name and email if they are not already set globally.
 These values identify the author of future commits; they are not GitHub login
 credentials.
 
+On Debian/Ubuntu, the installer runs `sudo apt-get update` before installing
+tools. It does not upgrade unrelated system packages by default. On a new
+machine where you explicitly want that update, use:
+
+```sh
+bash setup.sh --system-upgrade
+```
+
+This runs `sudo apt-get update` followed by `sudo apt-get upgrade -y`; it may
+update libraries or the kernel and can require a restart. The option is
+accepted but intentionally skipped on macOS and non-apt Linux distributions.
+On Windows, `-SystemUpgrade` is likewise reported as skipped because it is an
+apt-specific operation.
+
 To preview setup without changing the computer:
 
 ```sh
@@ -106,6 +120,50 @@ on Windows it is Git Credential Manager / Windows Credential Manager; on
 Linux GitHub CLI uses its supported secure store or asks for a suitable
 fallback. Do not add a `credential.helper = store` setting: it puts tokens in
 plaintext on disk.
+
+## Python 3.13, pip, and pipx
+
+Setup uses `uv` to install the latest compatible Python 3.13 release for the
+current platform. This is a user-owned installation, independent of the
+operating system Python and consistently available on macOS, Linux, and
+Windows.
+
+It then creates a seeded shared environment at:
+
+- macOS/Linux: `~/.venv/python-3.13`
+- Windows: `~/.venv/python-3.13`
+
+The environment contains Python 3.13 and `pip`; setup installs `pipx` there
+as well. Its `bin` (macOS/Linux) or `Scripts` (Windows) directory is added to
+the shell path when it exists, so a new terminal resolves `python`, `pip`, and
+`pipx` to this toolchain.
+
+Verify after restarting the shell:
+
+```sh
+python --version
+python -m pip --version
+pipx --version
+```
+
+```powershell
+python --version
+python -m pip --version
+pipx --version
+```
+
+Use this shared environment for command-line tools only. For each project,
+create an isolated dependency environment instead:
+
+```sh
+cd path/to/project
+uv venv --python 3.13
+uv pip install -r requirements.txt
+```
+
+On Windows, a newly installed `uv` may not become visible to the current
+PowerShell process immediately. If the final summary asks you to restart,
+open a new PowerShell window and run `.\setup.ps1 -SkipPackages` once more.
 
 ## What is installed
 

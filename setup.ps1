@@ -17,7 +17,8 @@ param(
     [switch]$SkipPackages,
     [switch]$GitHub,
     [switch]$CreateSshKey,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$SystemUpgrade
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,6 +97,52 @@ function Install-Tools {
         Write-Warning 'Neither winget nor Chocolatey is available. Install the tools listed in README.md manually.'
         Add-SetupStatus Skipped 'Package installation: no supported package manager'
     }
+}
+
+function Setup-Python {
+    $pythonEnv = Join-Path $HOME '.venv\python-3.13'
+    $pythonExe = Join-Path $pythonEnv 'Scripts\python.exe'
+    $pipxExe = Join-Path $pythonEnv 'Scripts\pipx.exe'
+    $uv = Get-Command uv -ErrorAction SilentlyContinue
+
+    # uv provides a user-owned, consistent CPython release without replacing
+    # Windows' system/app-managed Python. The seeded environment contains pip,
+    # then pipx is installed into that same Python 3.13 environment.
+    if (-not $uv) {
+        if ($DryRun) {
+            Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
+            Add-SetupStatus Pending "Would create shared Python environment: $pythonEnv"
+            Add-SetupStatus Pending 'Would install pip and pipx in the shared Python environment'
+            Add-SetupStatus Pending 'Would configure the pipx application path'
+        }
+        else {
+            Add-SetupStatus Pending 'Restart PowerShell so the uv installation is on PATH, then rerun setup'
+        }
+        return
+    }
+    if ($DryRun) {
+        Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
+        Add-SetupStatus Pending "Would create shared Python environment: $pythonEnv"
+        Add-SetupStatus Pending 'Would install pip and pipx in the shared Python environment'
+        Add-SetupStatus Pending 'Would configure the pipx application path'
+        return
+    }
+
+    & $uv.Path python install --default 3.13
+    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install Python 3.13'; return }
+    Add-SetupStatus Done 'Installed default Python 3.13 with uv'
+
+    & $uv.Path venv $pythonEnv --python 3.13 --seed
+    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not create the shared Python 3.13 environment'; return }
+    Add-SetupStatus Done "Created or updated shared Python environment: $pythonEnv"
+
+    & $pythonExe -m pip install --upgrade pip pipx
+    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install pip and pipx'; return }
+    Add-SetupStatus Done 'Installed pip and pipx in the shared Python environment'
+
+    & $pipxExe ensurepath
+    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not configure the pipx application path'; return }
+    Add-SetupStatus Done 'Configured the pipx application path'
 }
 
 function Install-Profile {
@@ -185,8 +232,13 @@ function Connect-GitHub {
     Add-SetupStatus Done 'Authenticated GitHub CLI and configured Git HTTPS access'
 }
 
+if ($SystemUpgrade) {
+    Write-Warning '-SystemUpgrade applies only to apt-based Linux; no Windows system upgrade was run.'
+    Add-SetupStatus Skipped 'System upgrade: only available on apt-based Linux'
+}
 if (-not $SkipPackages) { Install-Tools }
 else { Add-SetupStatus Skipped 'Package installation requested to be skipped' }
+Setup-Python
 Install-Profile
 Configure-Git
 if ($GitHub -or $CreateSshKey) { Connect-GitHub }
