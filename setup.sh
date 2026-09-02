@@ -225,6 +225,64 @@ setup_python() {
   fi
 }
 
+configure_default_zsh() {
+  local zsh_path current_shell current_user listed_shell
+  local zsh_is_approved=false
+
+  # A login shell is an account-level setting, distinct from the shell running
+  # this installer. Use only a Zsh executable approved in /etc/shells, then
+  # change the current user's future sessions through chsh.
+  zsh_path="$(command -v zsh 2>/dev/null || true)"
+  if [[ -z "$zsh_path" ]]; then
+    add_status pending 'Install Zsh, then rerun setup to make it the default shell'
+    return
+  fi
+  if [[ ! -r /etc/shells ]]; then
+    add_status pending 'Confirm Zsh is an approved login shell, then run chsh manually'
+    return
+  fi
+  while IFS= read -r listed_shell; do
+    [[ "$listed_shell" == "$zsh_path" ]] && zsh_is_approved=true
+  done < /etc/shells
+  if ! "$zsh_is_approved" && [[ -x /bin/zsh ]]; then
+    while IFS= read -r listed_shell; do
+      if [[ "$listed_shell" == /bin/zsh ]]; then
+        zsh_path=/bin/zsh
+        zsh_is_approved=true
+        break
+      fi
+    done < /etc/shells
+  fi
+  if ! "$zsh_is_approved"; then
+    add_status pending "Add $zsh_path to /etc/shells, then run: chsh -s $zsh_path"
+    return
+  fi
+
+  current_user="$(id -un)"
+  case "$(uname -s)" in
+    Darwin) current_shell="$(dscl . -read "/Users/$current_user" UserShell 2>/dev/null | awk '/UserShell:/ {print $2}')" ;;
+    Linux) current_shell="$(getent passwd "$current_user" | cut -d: -f7)" ;;
+    *) add_status skipped 'Default shell configuration: unsupported platform'; return ;;
+  esac
+  if [[ "$current_shell" == "$zsh_path" ]]; then
+    add_status done "Default login shell is already Zsh: $zsh_path"
+    return
+  fi
+  if "$DRY_RUN"; then
+    add_status pending "Would change the default login shell to: $zsh_path"
+    return
+  fi
+  if [[ ! -t 0 ]] || ! command -v chsh >/dev/null 2>&1; then
+    add_status pending "Run interactively: chsh -s $zsh_path"
+    return
+  fi
+  if chsh -s "$zsh_path"; then
+    add_status done "Changed default login shell to Zsh: $zsh_path"
+  else
+    add_status pending "Could not change login shell; run: chsh -s $zsh_path"
+  fi
+}
+
 link_file() {
   local source_file="$1"
   local target_file="$2"
@@ -312,6 +370,7 @@ if ! "$SKIP_PACKAGES"; then
 else
   add_status skipped 'Package installation requested to be skipped'
 fi
+configure_default_zsh
 setup_python
 
 link_file "$REPO_DIR/.zsh" "$HOME/.zsh"

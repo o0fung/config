@@ -30,6 +30,16 @@ enter your Git display name and email if they are not already set globally.
 These values identify the author of future commits; they are not GitHub login
 credentials.
 
+The installer also attempts to make Zsh your default login shell. It may ask
+for your account password through `chsh`; the password is not stored. Close
+and reopen the terminal (or log out and back in) after setup for the change to
+take effect. If account policy prevents this step, the final summary provides
+the manual fallback:
+
+```sh
+chsh -s "$(command -v zsh)"
+```
+
 On Debian/Ubuntu, the installer runs `sudo apt-get update` before installing
 tools. It does not upgrade unrelated system packages by default. On a new
 machine where you explicitly want that update, use:
