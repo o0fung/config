@@ -86,7 +86,7 @@ ffile() {
   fd_command="$(_fd_command)" || { print -u2 'ffile requires fd.'; return 1; }
 
   selected="$(
-    fzf --exit-0 --ignore-case --scheme=path --tiebreak=begin,length \
+    fzf --exit-0 --scheme=path --tiebreak=begin,length \
       --prompt 'files> ' --query "$query" \
       --bind "start:reload:$fd_command -t f -t d --exclude .git --exclude node_modules --exclude dist --exclude build . 2>/dev/null"
   )" || return
