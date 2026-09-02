@@ -79,6 +79,49 @@ while (($#)); do
   shift
 done
 
+package_command_path() {
+  # Package names differ from their executable names on some platforms. Check
+  # the command users will run so an existing system or third-party install is
+  # retained instead of installing a duplicate through the package manager.
+  case "$1" in
+    ripgrep) command -v rg ;;
+    fd|fd-find) command -v fd || command -v fdfind ;;
+    bat) command -v bat || command -v batcat ;;
+    gh|github-cli) command -v gh ;;
+    git-delta) command -v delta ;;
+    *) command -v "$1" ;;
+  esac
+}
+
+package_command_is_available() {
+  package_command_path "$1" >/dev/null 2>&1
+}
+
+brew_formula_version() {
+  brew list --versions "$1" 2>/dev/null | awk '{ $1 = ""; sub(/^ /, ""); print }'
+}
+
+print_brew_tool_report() {
+  local package command_path formula_version availability formula_status
+
+  printf '\nManaged tool report\n'
+  for package in "$@"; do
+    command_path="$(package_command_path "$package" 2>/dev/null || true)"
+    formula_version="$(brew_formula_version "$package" || true)"
+    if [[ -n "$command_path" ]]; then
+      availability="available at $command_path"
+    else
+      availability='missing from PATH'
+    fi
+    if [[ -n "$formula_version" ]]; then
+      formula_status="Homebrew version $formula_version"
+    else
+      formula_status='not installed by Homebrew'
+    fi
+    printf '  %-12s %s; %s\n' "$package" "$availability" "$formula_status"
+  done
+}
+
 install_packages() {
   local manager
   local -a packages
@@ -103,7 +146,19 @@ install_packages() {
 
   # Packages are independent: an unavailable optional package must not prevent
   # installation of the usable base configuration or the remaining tools.
-  if [[ "$manager" == apt ]]; then
+  if [[ "$manager" == brew ]]; then
+    if run brew update; then
+      if "$DRY_RUN"; then
+        add_status pending 'Would refresh Homebrew formula metadata'
+      else
+        add_status done 'Refreshed Homebrew formula metadata'
+      fi
+    else
+      printf 'Could not refresh Homebrew formula metadata; continuing with installed data.\n' >&2
+      add_status skipped 'Homebrew formula metadata refresh failed'
+    fi
+    print_brew_tool_report "${packages[@]}"
+  elif [[ "$manager" == apt ]]; then
     # Refresh package metadata before installing. A full system upgrade is
     # deliberately opt-in because it can update unrelated libraries or the
     # kernel and may require a restart on an otherwise usable computer.
@@ -136,6 +191,11 @@ install_packages() {
   printf 'Installing optional productivity tools with %s...\n' "$manager"
   local package
   for package in "${packages[@]}"; do
+    if package_command_is_available "$package"; then
+      printf 'Already available, skipped: %s\n' "$package"
+      add_status skipped "Already available: $package"
+      continue
+    fi
     if case "$manager" in
       brew) run brew install "$package" ;;
       apt) run sudo apt-get install -y "$package" ;;
@@ -146,7 +206,7 @@ install_packages() {
       if "$DRY_RUN"; then
         add_status pending "Would install: $package"
       else
-        add_status done "Installed or already present: $package"
+        add_status done "Installed: $package"
       fi
     else
       printf 'Skipped unavailable package: %s\n' "$package" >&2
@@ -155,73 +215,99 @@ install_packages() {
   done
 }
 
-setup_python() {
-  local python_env_dir="$HOME/.venv/python-3.13"
+python_313_path() {
+  local candidate candidate_path
+  for candidate in python3.13 python3 python; do
+    candidate_path="$(command -v "$candidate" 2>/dev/null || true)"
+    [[ -n "$candidate_path" ]] || continue
+    if "$candidate_path" -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 13))'; then
+      printf '%s\n' "$candidate_path"
+      return
+    fi
+  done
 
-  # uv supplies the same CPython 3.13 release on every supported platform,
-  # avoiding distribution-specific package availability and system-Python
-  # restrictions. The fallback is only used when the package manager lacked uv.
-  if ! command -v uv >/dev/null 2>&1; then
-    if command -v curl >/dev/null 2>&1; then
-      if run bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'; then
-        hash -r
-        if "$DRY_RUN"; then
-          add_status pending 'Would install uv from Astral'
+  if command -v uv >/dev/null 2>&1; then
+    candidate_path="$(uv python find 3.13 2>/dev/null || true)"
+    if [[ -n "$candidate_path" ]] &&
+      "$candidate_path" -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 13))'; then
+      printf '%s\n' "$candidate_path"
+      return
+    fi
+  fi
+  return 1
+}
+
+setup_python() {
+  local python_path
+
+  # Reuse global tooling first. Only bootstrap uv and Python when 3.13 is
+  # absent, then install pip and pipx individually if their commands are also
+  # missing. This avoids a duplicate environment-local Python toolchain.
+  python_path="$(python_313_path || true)"
+  if [[ -n "$python_path" ]]; then
+    add_status skipped "Python 3.13 already available: $python_path"
+  else
+    if ! command -v uv >/dev/null 2>&1; then
+      if command -v curl >/dev/null 2>&1; then
+        if run bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'; then
+          hash -r
+          if "$DRY_RUN"; then
+            add_status pending 'Would install uv from Astral'
+          else
+            add_status done 'Installed uv from Astral'
+          fi
         else
-          add_status done 'Installed uv from Astral'
+          add_status skipped 'Could not install uv'
+          return
         fi
       else
-        add_status skipped 'Could not install uv'
+        printf 'uv and curl are unavailable; Python 3.13 setup was skipped.\n' >&2
+        add_status pending 'Install uv, then rerun setup to configure Python 3.13'
+        return
+      fi
+    fi
+
+    if [[ "$DRY_RUN" != true ]] && ! command -v uv >/dev/null 2>&1; then
+      add_status pending 'Restart the shell so uv is on PATH, then rerun setup'
+      return
+    fi
+    if run uv python install --default 3.13; then
+      if "$DRY_RUN"; then
+        add_status pending 'Would install default Python 3.13 with uv'
+        python_path=python3.13
+      else
+        python_path="$(python_313_path || true)"
+        add_status done "Installed Python 3.13: $python_path"
       fi
     else
-      printf 'uv and curl are unavailable; Python 3.13 setup was skipped.\n' >&2
-      add_status pending 'Install uv, then rerun setup to configure Python 3.13'
+      add_status skipped 'Could not install Python 3.13'
       return
     fi
   fi
 
-  if [[ "$DRY_RUN" != true ]] && ! command -v uv >/dev/null 2>&1; then
-    add_status pending 'Install uv, then rerun setup to configure Python 3.13'
-    return
-  fi
-  if run uv python install --default 3.13; then
+  if command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1; then
+    add_status skipped 'pip is already available'
+  elif run "$python_path" -m ensurepip --upgrade; then
     if "$DRY_RUN"; then
-      add_status pending 'Would install default Python 3.13 with uv'
+      add_status pending 'Would install pip for Python 3.13'
     else
-      add_status done 'Installed default Python 3.13 with uv'
+      add_status done 'Installed pip for Python 3.13'
     fi
   else
-    add_status skipped 'Could not install Python 3.13'
-    return
+    add_status skipped 'Could not install pip for Python 3.13'
   fi
-  if run uv venv "$python_env_dir" --python 3.13 --seed; then
+
+  if command -v pipx >/dev/null 2>&1; then
+    add_status skipped 'pipx is already available'
+  elif run "$python_path" -m pip install --user pipx &&
+    run "$python_path" -m pipx ensurepath; then
     if "$DRY_RUN"; then
-      add_status pending "Would create shared Python environment: $python_env_dir"
+      add_status pending 'Would install pipx and configure its application path'
     else
-      add_status done "Created or updated shared Python environment: $python_env_dir"
+      add_status done 'Installed pipx and configured its application path'
     fi
   else
-    add_status skipped 'Could not create the shared Python 3.13 environment'
-    return
-  fi
-  if run "$python_env_dir/bin/python" -m pip install --upgrade pip pipx; then
-    if "$DRY_RUN"; then
-      add_status pending 'Would install pip and pipx in the shared Python environment'
-    else
-      add_status done 'Installed pip and pipx in the shared Python environment'
-    fi
-  else
-    add_status skipped 'Could not install pip and pipx'
-    return
-  fi
-  if run "$python_env_dir/bin/pipx" ensurepath; then
-    if "$DRY_RUN"; then
-      add_status pending 'Would configure the pipx application path'
-    else
-      add_status done 'Configured the pipx application path'
-    fi
-  else
-    add_status skipped 'Could not configure the pipx application path'
+    add_status skipped 'Could not install pipx'
   fi
 }
 

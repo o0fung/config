@@ -30,6 +30,15 @@ enter your Git display name and email if they are not already set globally.
 These values identify the author of future commits; they are not GitHub login
 credentials.
 
+On macOS, setup refreshes Homebrew's formula metadata, then reports the command
+path and Homebrew version for each tool it manages. A tool already available on
+your `PATH` is skipped, even if Homebrew has a newer version; use `brew
+outdated` and `brew upgrade <formula>` when you want to update it.
+
+Python setup reuses an available Python 3.13 interpreter, `pip`, and `pipx`.
+It installs only a missing command and does not create or update a dedicated
+Python virtual environment.
+
 The installer also attempts to make Zsh your default login shell. It may ask
 for your account password through `chsh`; the password is not stored. Close
 and reopen the terminal (or log out and back in) after setup for the change to

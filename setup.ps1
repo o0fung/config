@@ -76,7 +76,7 @@ function Install-Tools {
                 if ($DryRun) { Add-SetupStatus Pending "Would install: $package" } else { Add-SetupStatus Done "Installed or already present: $package" }
             }
             catch {
-                Write-Warning "Skipped $package: $($_.Exception.Message)"
+                Write-Warning "Skipped ${package}: $($_.Exception.Message)"
             }
         }
     }
@@ -89,7 +89,7 @@ function Install-Tools {
                 if ($DryRun) { Add-SetupStatus Pending "Would install: $package" } else { Add-SetupStatus Done "Installed or already present: $package" }
             }
             catch {
-                Write-Warning "Skipped $package: $($_.Exception.Message)"
+                Write-Warning "Skipped ${package}: $($_.Exception.Message)"
             }
         }
     }
@@ -99,50 +99,98 @@ function Install-Tools {
     }
 }
 
-function Setup-Python {
-    $pythonEnv = Join-Path $HOME '.venv\python-3.13'
-    $pythonExe = Join-Path $pythonEnv 'Scripts\python.exe'
-    $pipxExe = Join-Path $pythonEnv 'Scripts\pipx.exe'
-    $uv = Get-Command uv -ErrorAction SilentlyContinue
+function Get-Python313 {
+    $versionCheck = 'import sys; raise SystemExit(sys.version_info[:2] != (3, 13))'
+    foreach ($name in @('python3.13', 'python3', 'python')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) {
+            & $command.Source -c $versionCheck
+            if ($LASTEXITCODE -eq 0) {
+                return [pscustomobject]@{ Path = $command.Source; Arguments = @() }
+            }
+        }
+    }
 
-    # uv provides a user-owned, consistent CPython release without replacing
-    # Windows' system/app-managed Python. The seeded environment contains pip,
-    # then pipx is installed into that same Python 3.13 environment.
-    if (-not $uv) {
-        if ($DryRun) {
-            Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
-            Add-SetupStatus Pending "Would create shared Python environment: $pythonEnv"
-            Add-SetupStatus Pending 'Would install pip and pipx in the shared Python environment'
-            Add-SetupStatus Pending 'Would configure the pipx application path'
+    $launcher = Get-Command py -ErrorAction SilentlyContinue
+    if ($launcher) {
+        & $launcher.Source -3.13 -c $versionCheck
+        if ($LASTEXITCODE -eq 0) {
+            return [pscustomobject]@{ Path = $launcher.Source; Arguments = @('-3.13') }
+        }
+    }
+
+    $uv = Get-Command uv -ErrorAction SilentlyContinue
+    if ($uv) {
+        $pythonPath = (& $uv.Source python find 3.13 2>$null)
+        if ($pythonPath -and (Test-Path -LiteralPath $pythonPath)) {
+            & $pythonPath -c $versionCheck
+            if ($LASTEXITCODE -eq 0) {
+                return [pscustomobject]@{ Path = $pythonPath; Arguments = @() }
+            }
+        }
+    }
+}
+
+function Setup-Python {
+    # Reuse global tooling first. Only bootstrap uv and Python when 3.13 is
+    # absent, then install pip and pipx individually if their commands are also
+    # missing. This avoids a duplicate environment-local Python toolchain.
+    $python = Get-Python313
+    if ($python) {
+        Add-SetupStatus Skipped "Python 3.13 already available: $($python.Path)"
+    }
+    else {
+        $uv = Get-Command uv -ErrorAction SilentlyContinue
+        if (-not $uv) {
+            if ($DryRun) {
+                Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
+                $python = [pscustomobject]@{ Path = 'python3.13'; Arguments = @() }
+            }
+            else {
+                Add-SetupStatus Pending 'Install uv, restart PowerShell, then rerun setup'
+                return
+            }
         }
         else {
-            Add-SetupStatus Pending 'Restart PowerShell so the uv installation is on PATH, then rerun setup'
+            if ($DryRun) {
+                Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
+                $python = [pscustomobject]@{ Path = 'python3.13'; Arguments = @() }
+            }
+            else {
+                & $uv.Source python install --default 3.13
+                if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install Python 3.13'; return }
+                $python = Get-Python313
+                Add-SetupStatus Done "Installed Python 3.13: $($python.Path)"
+            }
         }
-        return
-    }
-    if ($DryRun) {
-        Add-SetupStatus Pending 'Would install default Python 3.13 with uv'
-        Add-SetupStatus Pending "Would create shared Python environment: $pythonEnv"
-        Add-SetupStatus Pending 'Would install pip and pipx in the shared Python environment'
-        Add-SetupStatus Pending 'Would configure the pipx application path'
-        return
     }
 
-    & $uv.Path python install --default 3.13
-    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install Python 3.13'; return }
-    Add-SetupStatus Done 'Installed default Python 3.13 with uv'
+    if ((Get-Command pip -ErrorAction SilentlyContinue) -or
+        (Get-Command pip3 -ErrorAction SilentlyContinue)) {
+        Add-SetupStatus Skipped 'pip is already available'
+    }
+    elseif ($DryRun) {
+        Add-SetupStatus Pending 'Would install pip for Python 3.13'
+    }
+    else {
+        & $python.Path @($python.Arguments + @('-m', 'ensurepip', '--upgrade'))
+        if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install pip for Python 3.13' }
+        else { Add-SetupStatus Done 'Installed pip for Python 3.13' }
+    }
 
-    & $uv.Path venv $pythonEnv --python 3.13 --seed
-    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not create the shared Python 3.13 environment'; return }
-    Add-SetupStatus Done "Created or updated shared Python environment: $pythonEnv"
-
-    & $pythonExe -m pip install --upgrade pip pipx
-    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install pip and pipx'; return }
-    Add-SetupStatus Done 'Installed pip and pipx in the shared Python environment'
-
-    & $pipxExe ensurepath
-    if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not configure the pipx application path'; return }
-    Add-SetupStatus Done 'Configured the pipx application path'
+    if (Get-Command pipx -ErrorAction SilentlyContinue) {
+        Add-SetupStatus Skipped 'pipx is already available'
+    }
+    elseif ($DryRun) {
+        Add-SetupStatus Pending 'Would install pipx and configure its application path'
+    }
+    else {
+        & $python.Path @($python.Arguments + @('-m', 'pip', 'install', '--user', 'pipx'))
+        if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install pipx'; return }
+        & $python.Path @($python.Arguments + @('-m', 'pipx', 'ensurepath'))
+        if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not configure the pipx application path' }
+        else { Add-SetupStatus Done 'Installed pipx and configured its application path' }
+    }
 }
 
 function Install-Profile {
