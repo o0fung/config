@@ -1,17 +1,22 @@
-[credential]
-	helper = store
-[user]
-	name = Yeung LF
-	email = o0fung@gmail.com
+# Shared Git defaults. This file intentionally contains no identity, tokens,
+# credential helpers, or editor command: those are personal or platform-specific.
 [alias]
-	st = status
-	lg = log --oneline
-	ci = commit
-	pl = pull
-	ph = push
-	br = branch
-	sw = switch
-    go = !sh -c 'git pl && git st && git add . && git ci -m ok && git ph'
+    st = status --short --branch
+    lg = log --graph --decorate --oneline
+    ci = commit
+    pl = pull
+    ph = push
+    br = branch
+    sw = switch
 
-[core]
-	editor = nano
+[fetch]
+    prune = true
+
+[push]
+    autoSetupRemote = true
+
+[rebase]
+    autoStash = true
+
+[column]
+    ui = auto

@@ -1,11 +1,10 @@
-
-# Setting PATH for Python 3.13
-# The original version is saved in .zprofile.pysave
-PATH="/Library/Frameworks/Python.framework/Versions/3.13/bin:${PATH}"
-export PATH
-
-alias py='python3'
-eval "$(/opt/homebrew/bin/brew shellenv)"
-
-# Personal scripts
+# Login-shell environment shared by macOS and Linux.
+# Python should be installed and selected by the operating system or a project
+# tool such as uv; hard-coding a macOS framework version is not portable.
 export PATH="$HOME/.local/bin:$PATH"
+
+# Homebrew exists in different locations on Intel and Apple Silicon Macs.
+# Ask its executable for the appropriate environment only when it is installed.
+if command -v brew >/dev/null 2>&1; then
+  eval "$(brew shellenv)"
+fi
