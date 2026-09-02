@@ -1,0 +1,17 @@
+[credential]
+	helper = store
+[user]
+	name = Yeung LF
+	email = o0fung@gmail.com
+[alias]
+	st = status
+	lg = log --oneline
+	ci = commit
+	pl = pull
+	ph = push
+	br = branch
+	sw = switch
+    go = !sh -c 'git pl && git st && git add . && git ci -m ok && git ph'
+
+[core]
+	editor = nano
