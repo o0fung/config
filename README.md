@@ -217,7 +217,7 @@ On Zsh and, where practical, PowerShell:
   in Cursor
 - `ffile [query]` / `ff`: fuzzy file/directory search; enter a directory or
   open a file in the system default application
-- `idx`: open the current folder in the system default application (Zsh only)
+- `idx`: open the current folder in Chrome as a `file://` listing (Chromium or the default browser on Linux; Zsh only)
 
 `zoxide` supplies the `z` directory-jump command. On Zsh, `cd` becomes `z`
 when zoxide is available, while `builtin cd` remains available for exact shell
