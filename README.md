@@ -148,37 +148,32 @@ plaintext on disk.
 
 ## Python 3.13, pip, and pipx
 
-Setup uses `uv` to install the latest compatible Python 3.13 release for the
-current platform. This is a user-owned installation, independent of the
-operating system Python and consistently available on macOS, Linux, and
-Windows.
+Setup reuses a Python 3.13 interpreter already on `PATH`. When none is
+present, it uses `uv` to install the latest compatible Python 3.13 release
+for the current platform. That interpreter is user-owned and independent of
+the operating system Python.
 
-It then creates a seeded shared environment at:
-
-- macOS/Linux: `~/.venv/python-3.13`
-- Windows: `~/.venv/python-3.13`
-
-The environment contains Python 3.13 and `pip`; setup installs `pipx` there
-as well. Its `bin` (macOS/Linux) or `Scripts` (Windows) directory is added to
-the shell path when it exists, so a new terminal resolves `python`, `pip`, and
-`pipx` to this toolchain.
+If `pip` is missing, setup installs it for that interpreter. If `pipx` is
+missing and `uv` is available, setup runs `uv tool install pipx`. That keeps
+`pipx` in its own environment and links the command into `~/.local/bin`,
+which is already on the shell path. A uv-managed Python rejects
+`pip install --user`. Setup uses that pip command only when `uv` is not
+installed.
 
 Verify after restarting the shell:
 
 ```sh
-python --version
-python -m pip --version
+python3.13 --version
 pipx --version
 ```
 
 ```powershell
 python --version
-python -m pip --version
 pipx --version
 ```
 
-Use this shared environment for command-line tools only. For each project,
-create an isolated dependency environment instead:
+Use `uv` for project dependencies. For each project, create an isolated
+environment:
 
 ```sh
 cd path/to/project

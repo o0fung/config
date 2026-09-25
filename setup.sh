@@ -299,6 +299,18 @@ setup_python() {
 
   if command -v pipx >/dev/null 2>&1; then
     add_status skipped 'pipx is already available'
+  elif command -v uv >/dev/null 2>&1; then
+    # A uv-managed Python rejects pip install --user. uv tool installs pipx
+    # in its own environment and links the command into ~/.local/bin.
+    if run uv tool install pipx; then
+      if "$DRY_RUN"; then
+        add_status pending 'Would install pipx with uv'
+      else
+        add_status done 'Installed pipx with uv'
+      fi
+    else
+      add_status skipped 'Could not install pipx'
+    fi
   elif run "$python_path" -m pip install --user pipx &&
     run "$python_path" -m pipx ensurepath; then
     if "$DRY_RUN"; then
@@ -442,7 +454,7 @@ link_github() {
     # wait; finish that login in a browser on another computer.
     if [[ -n ${SSH_CONNECTION:-} || -n ${SSH_CLIENT:-} || -n ${SSH_TTY:-} ]]; then
       printf 'Copy the one-time code, open the URL on a computer that has a browser, and approve GitHub CLI.\n'
-      run gh auth login --hostname github.com --git-protocol https --skip-ssh-key --web < /dev/null
+      run gh auth login --hostname github.com --git-protocol https --web < /dev/null
     else
       run gh auth login --git-protocol https --web
     fi

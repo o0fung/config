@@ -181,6 +181,18 @@ function Setup-Python {
     if (Get-Command pipx -ErrorAction SilentlyContinue) {
         Add-SetupStatus Skipped 'pipx is already available'
     }
+    elseif (Get-Command uv -ErrorAction SilentlyContinue) {
+        # A uv-managed Python rejects pip install --user. uv tool installs pipx
+        # in its own environment and links the command into the user bin directory.
+        if ($DryRun) {
+            Add-SetupStatus Pending 'Would install pipx with uv'
+        }
+        else {
+            uv tool install pipx
+            if ($LASTEXITCODE -ne 0) { Add-SetupStatus Skipped 'Could not install pipx' }
+            else { Add-SetupStatus Done 'Installed pipx with uv' }
+        }
+    }
     elseif ($DryRun) {
         Add-SetupStatus Pending 'Would install pipx and configure its application path'
     }
@@ -263,7 +275,7 @@ function Connect-GitHub {
         $sshSession = $env:SSH_CONNECTION -or $env:SSH_CLIENT -or $env:SSH_TTY
         if ($sshSession) {
             Write-Host 'Copy the one-time code, open the URL on a computer that has a browser, and approve GitHub CLI.'
-            Invoke-SetupCommand { $null | gh auth login --hostname github.com --git-protocol https --skip-ssh-key --web } 'Sign in to GitHub with a one-time code'
+            Invoke-SetupCommand { $null | gh auth login --hostname github.com --git-protocol https --web } 'Sign in to GitHub with a one-time code'
         }
         else {
             Invoke-SetupCommand { gh auth login --git-protocol https --web } 'Open GitHub authentication'
