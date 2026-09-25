@@ -110,17 +110,23 @@ bash setup.sh --skip-packages --github
 .\setup.ps1 -SkipPackages -GitHub
 ```
 
-GitHub CLI opens a browser or device-login page. Sign in to the intended
-GitHub account and approve the request. The installer then configures Git to
-use HTTPS with GitHub CLI and displays the authenticated account. Prepare no
-token, password, or GitHub webpage configuration beforehand.
+On the computer where you run setup, GitHub CLI opens a browser. Sign in to
+the intended GitHub account and approve the request.
+
+When you run setup over SSH, GitHub CLI prints a one-time code and a URL. On
+a computer that has a browser, open that URL, enter the code, and approve
+GitHub CLI.
+
+The installer then configures Git to use HTTPS with GitHub CLI and displays
+the authenticated account. Prepare no token, password, or GitHub webpage
+configuration beforehand.
 
 ### SSH (alternative)
 
 Use SSH only if you prefer SSH-form repository URLs such as
 `git@github.com:owner/repository.git`. This is an alternative to the HTTPS
-command above—do not run both. It performs the same GitHub browser/device
-login, creates `~/.ssh/id_ed25519` only when no key exists, and uploads its
+command above—do not run both. It performs the same GitHub login, creates
+`~/.ssh/id_ed25519` only when no key exists, and uploads its
 public key to the authenticated GitHub account:
 
 ```sh

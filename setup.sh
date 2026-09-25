@@ -436,7 +436,17 @@ link_github() {
     "$CREATE_SSH_KEY" && add_status pending 'Would create/upload an SSH key'
     return
   fi
-  gh auth status >/dev/null 2>&1 || run gh auth login --git-protocol https --web
+  if ! gh auth status >/dev/null 2>&1; then
+    # Over SSH, a browser would open on the device being configured.
+    # A closed stdin makes GitHub CLI print a one-time code and URL and
+    # wait; finish that login in a browser on another computer.
+    if [[ -n ${SSH_CONNECTION:-} || -n ${SSH_CLIENT:-} || -n ${SSH_TTY:-} ]]; then
+      printf 'Copy the one-time code, open the URL on a computer that has a browser, and approve GitHub CLI.\n'
+      run gh auth login --hostname github.com --git-protocol https --skip-ssh-key --web < /dev/null
+    else
+      run gh auth login --git-protocol https --web
+    fi
+  fi
   run gh auth setup-git
 
   if "$CREATE_SSH_KEY"; then

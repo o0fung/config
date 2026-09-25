@@ -257,7 +257,17 @@ function Connect-GitHub {
     }
     gh auth status | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Invoke-SetupCommand { gh auth login --git-protocol https --web } 'Open GitHub authentication'
+        # Over SSH, a browser would open on the device being configured.
+        # A closed stdin makes GitHub CLI print a one-time code and URL and
+        # wait; finish that login in a browser on another computer.
+        $sshSession = $env:SSH_CONNECTION -or $env:SSH_CLIENT -or $env:SSH_TTY
+        if ($sshSession) {
+            Write-Host 'Copy the one-time code, open the URL on a computer that has a browser, and approve GitHub CLI.'
+            Invoke-SetupCommand { $null | gh auth login --hostname github.com --git-protocol https --skip-ssh-key --web } 'Sign in to GitHub with a one-time code'
+        }
+        else {
+            Invoke-SetupCommand { gh auth login --git-protocol https --web } 'Open GitHub authentication'
+        }
         if (-not $DryRun -and $LASTEXITCODE -ne 0) {
             throw 'GitHub authentication did not complete.'
         }
